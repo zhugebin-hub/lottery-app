@@ -39,6 +39,50 @@
             opacity: 0.9;
         }
 
+        .countdown {
+            text-align: center;
+            padding: 20px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            margin: 20px 0;
+        }
+
+        .countdown-time {
+            font-size: 2.5em;
+            font-weight: 800;
+            color: #ffd700;
+            margin: 10px 0;
+        }
+
+        .countdown-label {
+            font-size: 1.1em;
+            color: rgba(255, 255, 255, 0.8);
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            font-weight: 600;
+            margin: 10px 0;
+        }
+
+        .status-open {
+            background: #34d399;
+            color: white;
+        }
+
+        .status-closed {
+            background: #ff4757;
+            color: white;
+        }
+
+        .status-drawing {
+            background: #ffd700;
+            color: #333;
+        }
+
         .card {
             background: white;
             border-radius: 16px;
@@ -308,6 +352,11 @@
         <div class="header">
             <h1>🦞 小龙虾网络抽奖</h1>
             <p>对话即创造 — 多 Agent 协作开源框架</p>
+            <div class="countdown">
+                <div class="countdown-label">报名截止时间</div>
+                <div class="countdown-time" id="countdown">计算中...</div>
+                <div class="status-badge status-open" id="statusBadge">报名中</div>
+            </div>
         </div>
 
         <div class="card">
@@ -396,13 +445,91 @@
         let participants = JSON.parse(localStorage.getItem('lottery_participants') || '[]');
         let winners = JSON.parse(localStorage.getItem('lottery_winners') || '[]');
         let isLotteryRunning = false;
+        
+        // 报名截止时间 - 今晚24:00
+        const DEADLINE = new Date();
+        DEADLINE.setHours(24, 0, 0, 0);
+        
+        // 抽奖状态
+        let lotteryStatus = localStorage.getItem('lottery_status') || 'registering'; // registering, drawing, completed
 
         // 初始化
         document.addEventListener('DOMContentLoaded', function() {
             updateStats();
             renderParticipantList();
             renderWinnerList();
+            startCountdown();
+            checkDeadline();
+            initLotteryButton();
         });
+        
+        // 初始化开奖按钮状态
+        function initLotteryButton() {
+            const btn = document.getElementById('startLotteryBtn');
+            const resetBtn = document.getElementById('resetLotteryBtn');
+            
+            if (lotteryStatus === 'completed') {
+                btn.textContent = '🎉 抽奖完成';
+                btn.disabled = true;
+                resetBtn.classList.remove('hidden');
+            } else if (lotteryStatus === 'drawing') {
+                btn.textContent = '🎰 开始开奖';
+                btn.disabled = false;
+            } else {
+                btn.textContent = '🎰 开始抽奖';
+                btn.disabled = true;
+            }
+        }
+
+        // 倒计时
+        function startCountdown() {
+            const countdownEl = document.getElementById('countdown');
+            const statusBadge = document.getElementById('statusBadge');
+            
+            setInterval(() => {
+                const now = new Date();
+                const diff = DEADLINE - now;
+                
+                if (diff <= 0) {
+                    countdownEl.textContent = '已截止';
+                    statusBadge.textContent = '报名截止';
+                    statusBadge.className = 'status-badge status-closed';
+                    checkDeadline();
+                    return;
+                }
+                
+                const hours = Math.floor(diff / (1000 * 60 * 60));
+                const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+                const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+                
+                countdownEl.textContent = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+            }, 1000);
+        }
+        
+        // 检查截止时间
+        function checkDeadline() {
+            const now = new Date();
+            if (now >= DEADLINE && lotteryStatus === 'registering') {
+                lotteryStatus = 'drawing';
+                localStorage.setItem('lottery_status', 'drawing');
+                
+                // 更新UI
+                const statusBadge = document.getElementById('statusBadge');
+                statusBadge.textContent = '准备开奖';
+                statusBadge.className = 'status-badge status-drawing';
+                
+                // 禁用报名表单
+                document.getElementById('registerForm').querySelector('button[type="submit"]').disabled = true;
+                document.getElementById('registerForm').querySelector('button[type="submit"]').textContent = '报名已截止';
+                
+                // 启用开奖按钮
+                const lotteryBtn = document.getElementById('startLotteryBtn');
+                lotteryBtn.disabled = false;
+                lotteryBtn.textContent = '🎰 开始开奖';
+                
+                showToast('报名已截止，可以开始开奖！');
+            }
+        }
 
         // 切换 tab
         function switchTab(tabName) {
@@ -416,6 +543,12 @@
         // 报名表单提交
         document.getElementById('registerForm').addEventListener('submit', function(e) {
             e.preventDefault();
+            
+            // 检查是否已截止
+            if (new Date() >= DEADLINE) {
+                showToast('报名已截止');
+                return;
+            }
             
             const name = document.getElementById('name').value.trim();
             const phone = document.getElementById('phone').value.trim();
@@ -453,6 +586,12 @@
         // 开始抽奖
         function startLottery() {
             if (isLotteryRunning) return;
+            
+            // 检查是否已截止
+            if (new Date() < DEADLINE && lotteryStatus === 'registering') {
+                showToast('报名尚未截止，请等待截止时间');
+                return;
+            }
             
             const eligibleParticipants = participants.filter(p => !winners.some(w => w.id === p.id));
             
@@ -504,6 +643,8 @@
                         btn.textContent = '🎉 抽奖完成';
                         btn.disabled = true;
                         document.getElementById('resetLotteryBtn').classList.remove('hidden');
+                        lotteryStatus = 'completed';
+                        localStorage.setItem('lottery_status', 'completed');
                         showConfetti();
                     }
                 }
@@ -514,7 +655,9 @@
         function resetLottery() {
             if (confirm('确定要重置抽奖吗？所有中奖记录将被清除。')) {
                 winners = [];
+                lotteryStatus = 'registering';
                 saveData();
+                localStorage.setItem('lottery_status', 'registering');
                 updateStats();
                 renderWinnerList();
                 
@@ -590,6 +733,7 @@
         function saveData() {
             localStorage.setItem('lottery_participants', JSON.stringify(participants));
             localStorage.setItem('lottery_winners', JSON.stringify(winners));
+            localStorage.setItem('lottery_status', lotteryStatus);
         }
 
         // 显示提示
